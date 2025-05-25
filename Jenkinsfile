@@ -126,7 +126,7 @@ pipeline {
                     echo "Verificando que el scanner existe:"
                     sh "test -f ${scannerHome}/bin/sonar-scanner && echo '✅ Scanner encontrado' || echo '❌ Scanner NO encontrado'"
                     
-                    withSonarQubeEnv('SonarQube') {
+                    withSonarQubeEnv('sonarqube') {
                         echo "Ejecutando análisis de SonarQube..."
                         echo "Parámetros del análisis:"
                         echo "- Project Key: modasnansi-backend"
@@ -161,7 +161,7 @@ pipeline {
             steps {
                 echo "=== VERIFICANDO QUALITY GATE ==="
                 echo "Esperando resultado del Quality Gate..."
-                timeout(time: 5, unit: 'MINUTES') {
+                timeout(time: 10, unit: 'MINUTES') {
                     script {
                         echo "Consultando estado del Quality Gate..."
                         def qg = waitForQualityGate()
