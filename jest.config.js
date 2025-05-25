@@ -5,13 +5,13 @@ module.exports = {
   transform: {
     '^.+\\.(t|j)s$': 'ts-jest',
   },
-  collectCoverageFrom: [
-    '**/*.(t|j)s',
-    '!**/*.module.ts',
-    '!**/node_modules/**',
-    '!**/dist/**',
-  ],
-  coverageDirectory: './coverage',
+  // collectCoverageFrom: [
+  //   '**/*.(t|j)s',
+  //   '!**/*.module.ts',
+  //   '!**/node_modules/**',
+  //   '!**/dist/**',
+  // ],
+  // coverageDirectory: './coverage',
   testEnvironment: 'node',
   roots: ['<rootDir>/src/'],
   moduleNameMapper: {
@@ -28,5 +28,5 @@ module.exports = {
     '^@target-audiences/(.*)$': '<rootDir>/src/target-audiences/$1',
     // Añade cualquier otro alias que uses en tu proyecto
   },
-  setupFilesAfterEnv: ['<rootDir>/jest.setup.js'],
+  // setupFilesAfterEnv: ['<rootDir>/jest.setup.js'],
 };
