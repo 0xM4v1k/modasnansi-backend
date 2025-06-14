@@ -8,7 +8,7 @@ services:
     ports:
       - "3000:3000"
     environment:
-      - NODE_ENV=production
+      - NODE_ENV=development
       - PORT=3000
       - LOCAL_DB_HOST=db
       - LOCAL_DB_PORT=3306
@@ -16,6 +16,10 @@ services:
       - LOCAL_DB_PASSWORD=password123
       - LOCAL_DB_DATABASE=modas-nansi
       - ENVIRONMENT=development
+      - AWS_S3_BUCKET=dummy-bucket
+      - AWS_REGION=us-east-1
+      - AWS_ACCESS_KEY_ID=dummy-key
+      - AWS_SECRET_ACCESS_KEY=dummy-secret
       - JWT_SECRET=gT8+F6vs+hnEuCdvW2KkzxNmKy5YITc7evqhasTf8wfDAr2ji+EnU5ZnsAXlR2cMb0TO3Hjeccx33LYu8R7PNg==
     depends_on:
       db:
