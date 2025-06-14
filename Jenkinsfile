@@ -241,11 +241,11 @@ pipeline {
                             
                             // 🔍 Verificación de la base de datos
                             echo '4️⃣ Verificando conexión a la base de datos...'
-                            timeout(time: 1, unit: 'MINUTES') {
+                            timeout(time: 2, unit: 'MINUTES') {
                                 waitUntil {
                                     script {
                                         try {
-                                            sh "docker exec modas-nansi-db-1 mysqladmin ping -h localhost -u root -ppassword123 --silent"
+                                            sh "docker exec modas-nansi-db-1 mysqladmin ping -h localhost -u root -p password123 --silent"
                                             return true
                                         } catch (Exception e) {
                                             echo "⏳ Esperando que MySQL esté listo..."
