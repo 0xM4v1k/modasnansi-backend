@@ -191,7 +191,7 @@ pipeline {
             }
         }
 
-// 🚀 Etapa: Despliegue de la aplicación NestJS
+        // 🚀 Etapa: Despliegue de la aplicación NestJS
         stage('🚀 Deploy Application') {
             steps {
                 echo '🚀 === INICIO: PROCESO DE DESPLIEGUE ==='
@@ -201,7 +201,7 @@ pipeline {
                             // 🧹 Limpieza de despliegue anterior
                             echo '1️⃣ Limpiando despliegue anterior...'
                             try {
-                                sh "docker-compose -p ${DOCKER_PROJECT_NAME} down -v --remove-orphans"
+                                sh "docker-compose -p modas-nansi down -v --remove-orphans"
                                 echo "✅ Contenedores anteriores detenidos"
                             } catch (Exception e) {
                                 echo "⚠️ Advertencia al detener contenedores: ${e.getMessage()}"
@@ -210,30 +210,42 @@ pipeline {
                             // 🧹 Limpieza de imágenes previas
                             echo '1.1️⃣ Limpiando imágenes previas...'
                             try {
-                                sh """
-                                    docker image rm \$(docker images -q ${DOCKER_PROJECT_NAME}_app) 2>/dev/null || echo "⚠️ No hay imágenes previas de la app"
+                                sh '''
+                                    docker image rm $(docker images -q modas-nansi-app) 2>/dev/null || echo "⚠️ No hay imágenes previas de la app"
                                     docker image prune -f || echo "⚠️ No se pudieron limpiar imágenes"
-                                """
+                                '''
                             } catch (Exception e) {
                                 echo "⚠️ Advertencia al limpiar imágenes: ${e.getMessage()}"
                             }
                             
                             // 🏗️ Construcción y levantamiento de servicios
                             echo '2️⃣ Construyendo y levantando servicios...'
-                            sh "docker-compose -p ${DOCKER_PROJECT_NAME} up -d --build"
+                            sh "docker-compose -p modas-nansi up -d --build"
                             
                             // ⏳ Espera para que los servicios inicien
                             echo '3️⃣ Esperando inicialización de servicios...'
                             echo 'Esperando que MySQL esté listo...'
                             sleep(20)
                             
+                            // 🔍 Verificación del estado de contenedores
+                            echo '3.1️⃣ Verificando estado de contenedores...'
+                            sh "docker-compose -p modas-nansi ps"
+                            
+                            // 🔍 Verificar logs de la aplicación para debugging
+                            echo '3.2️⃣ Verificando logs de la aplicación...'
+                            try {
+                                sh "docker logs modas-nansi-app-1 --tail 20"
+                            } catch (Exception e) {
+                                echo "⚠️ No se pueden obtener logs de la aplicación: ${e.getMessage()}"
+                            }
+                            
                             // 🔍 Verificación de la base de datos
                             echo '4️⃣ Verificando conexión a la base de datos...'
-                            timeout(time: 2, unit: 'MINUTES') {
+                            timeout(time: 1, unit: 'MINUTES') {
                                 waitUntil {
                                     script {
                                         try {
-                                            sh "docker exec ${DB_CONTAINER_NAME} mysqladmin ping -h localhost -u ${DB_USER} -p${DB_PASSWORD} --silent"
+                                            sh "docker exec modas-nansi-db-1 mysqladmin ping -h localhost -u root -ppassword123 --silent"
                                             return true
                                         } catch (Exception e) {
                                             echo "⏳ Esperando que MySQL esté listo..."
@@ -245,26 +257,39 @@ pipeline {
                             }
                             echo "✅ MySQL está listo"
                             
+                            // 🔍 Verificar si la aplicación está corriendo correctamente
+                            echo '5️⃣ Verificando estado de la aplicación...'
+                            def appStatus = sh(script: "docker inspect modas-nansi-app-1 --format='{{.State.Status}}'", returnStdout: true).trim()
+                            echo "Estado de la aplicación: ${appStatus}"
+                            
+                            if (appStatus != 'running') {
+                                echo "⚠️ La aplicación no está corriendo. Verificando logs..."
+                                sh "docker logs modas-nansi-app-1 --tail 50"
+                                echo "Intentando reiniciar la aplicación..."
+                                sh "docker restart modas-nansi-app-1"
+                                sleep(30)
+                            }
+                            
                             // 🔍 Verificación de la estructura de base de datos
-                            echo '5️⃣ Verificando estructura de la base de datos...'
-                            sh """
-                                docker exec ${DB_CONTAINER_NAME} mysql -u${DB_USER} -p${DB_PASSWORD} -e "
-                                    USE ${DB_NAME}; 
+                            echo '6️⃣ Verificando estructura de la base de datos...'
+                            sh '''
+                                docker exec modas-nansi-db-1 mysql -uroot -ppassword123 -e "
+                                    USE modas-nansi; 
                                     SHOW TABLES;
-                                    SELECT 'Database ${DB_NAME} is ready!' as status;
+                                    SELECT 'Database modas-nansi is ready!' as status;
                                 "
-                            """
+                            '''
                             
                             // ⏳ Espera adicional para la aplicación NestJS
-                            echo '6️⃣ Esperando inicio de la aplicación NestJS...'
+                            echo '7️⃣ Esperando inicio de la aplicación NestJS...'
                             sleep(30)
                             
                             // 🔍 Verificación de logs de la aplicación
-                            echo '7️⃣ Mostrando logs de la aplicación:'
-                            sh "docker logs --tail 50 ${APP_CONTAINER_NAME}"
+                            echo '8️⃣ Mostrando logs finales de la aplicación:'
+                            sh "docker logs modas-nansi-app-1 --tail 30"
                             
                             // 🔍 Verificación de que la aplicación responde
-                            echo '8️⃣ Verificando que la aplicación responde...'
+                            echo '9️⃣ Verificando que la aplicación responde...'
                             timeout(time: 2, unit: 'MINUTES') {
                                 waitUntil {
                                     script {
@@ -273,6 +298,17 @@ pipeline {
                                             return true
                                         } catch (Exception e) {
                                             echo "⏳ Esperando que la aplicación responda..."
+                                            
+                                            // Verificar estado del contenedor cada vez
+                                            def status = sh(script: "docker inspect modas-nansi-app-1 --format='{{.State.Status}}'", returnStdout: true).trim()
+                                            echo "Estado actual del contenedor: ${status}"
+                                            
+                                            if (status != 'running') {
+                                                echo "❌ El contenedor no está corriendo. Logs recientes:"
+                                                sh "docker logs modas-nansi-app-1 --tail 10"
+                                                return false
+                                            }
+                                            
                                             sleep(5)
                                             return false
                                         }
@@ -282,15 +318,15 @@ pipeline {
                             echo "✅ Aplicación está respondiendo"
                             
                             // 📊 Estado final de los servicios
-                            echo '9️⃣ Estado final de los servicios:'
-                            sh "docker-compose -p ${DOCKER_PROJECT_NAME} ps"
+                            echo '🔟 Estado final de los servicios:'
+                            sh "docker-compose -p modas-nansi ps"
                             
                             // 🌐 URLs de acceso
                             echo '🌐 === INFORMACIÓN DE ACCESO ==='
                             echo "🚀 Aplicación NestJS: http://localhost:3000"
                             echo "🗄️ Base de datos MySQL: localhost:3307"
-                            echo "📦 Contenedor App: ${APP_CONTAINER_NAME}"
-                            echo "📦 Contenedor DB: ${DB_CONTAINER_NAME}"
+                            echo "📦 Contenedor App: modas-nansi-app-1"
+                            echo "📦 Contenedor DB: modas-nansi-db-1"
                             echo '================================'
                             
                         } catch (Exception e) {
@@ -300,13 +336,13 @@ pipeline {
                             echo '🔍 === INFORMACIÓN DE DEBUGGING ==='
                             try {
                                 echo 'Estado de contenedores:'
-                                sh "docker-compose -p ${DOCKER_PROJECT_NAME} ps"
+                                sh "docker-compose -p modas-nansi ps"
                                 
                                 echo 'Logs de la aplicación:'
-                                sh "docker logs ${APP_CONTAINER_NAME} --tail 30 || echo 'No se pueden obtener logs de la app'"
+                                sh "docker logs modas-nansi-app-1 --tail 50 || echo 'No se pueden obtener logs de la app'"
                                 
                                 echo 'Logs de la base de datos:'
-                                sh "docker logs ${DB_CONTAINER_NAME} --tail 20 || echo 'No se pueden obtener logs de la DB'"
+                                sh "docker logs modas-nansi-db-1 --tail 20 || echo 'No se pueden obtener logs de la DB'"
                                 
                                 echo 'Contenedores en ejecución:'
                                 sh "docker ps -a"
