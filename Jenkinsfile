@@ -183,150 +183,135 @@ pipeline {
             }
         }
 
-        stage('🐳 Docker Build & Deploy') {
+// 🚀 Etapa: Despliegue de la aplicación NestJS
+        stage('🚀 Deploy Application') {
             steps {
-                echo "=== INICIANDO DOCKER BUILD & DEPLOY ==="
-                script {
-                    try {
-                        echo "Verificando archivos Docker..."
-                        sh "ls -la docker/"
-                        
-                        echo "Deteniendo contenedores existentes si existen..."
-                        sh """
-                            cd docker || { echo "❌ No se puede acceder al directorio docker"; exit 1; }
-                            docker-compose -f docker-compose.yml down --remove-orphans || echo "⚠️ No hay contenedores previos corriendo"
-                        """
-                        
-                        echo "Eliminando imágenes Docker previas..."
-                        sh """
-                            docker image ls | grep modas-nansi-app || echo "⚠️ No hay imágenes previas"
-                            docker image rm \$(docker image ls -q docker_app*) 2>/dev/null || echo "⚠️ No se pudieron eliminar imágenes previas"
-                            docker image rm \$(docker image ls -q modas-nansi-app*) 2>/dev/null || echo "⚠️ No se pudieron eliminar imágenes previas"
-                        """
-                        
-                        echo "Construyendo nueva imagen Docker..."
-                        sh """
-                            cd docker
-                            echo "Contenido del directorio actual:"
-                            ls -la
-                            echo "Verificando Dockerfile:"
-                            cat Dockerfile | head -10
+                echo '🚀 === INICIO: PROCESO DE DESPLIEGUE ==='
+                dir('docker') {
+                    script {
+                        try {
+                            // 🧹 Limpieza de despliegue anterior
+                            echo '1️⃣ Limpiando despliegue anterior...'
+                            try {
+                                sh "docker-compose -p ${DOCKER_PROJECT_NAME} down -v --remove-orphans"
+                                echo "✅ Contenedores anteriores detenidos"
+                            } catch (Exception e) {
+                                echo "⚠️ Advertencia al detener contenedores: ${e.getMessage()}"
+                            }
                             
-                            echo "Construyendo imagen..."
-                            docker-compose build --no-cache
-                        """
-                        
-                        echo "Verificando que la imagen se construyó correctamente..."
-                        sh "docker images | grep docker_app || { echo '❌ Imagen no construida correctamente'; exit 1; }"
-                        
-                        echo "Levantando servicios con Docker Compose..."
-                        sh """
-                            cd docker
-                            docker-compose up -d
-                        """
-                        
-                        echo "Esperando que los servicios estén listos..."
-                        sleep 30
-                        
-                        echo "Verificando que los contenedores están corriendo..."
-                        sh """
-                            cd docker
-                            docker-compose ps
-                            echo "Estado de los contenedores:"
-                            docker-compose logs --tail=20
-                        """
-                        
-                        echo "Verificando conectividad de la aplicación..."
-                        sh """
-                            echo "Esperando que la aplicación esté lista..."
-                            timeout 60s bash -c 'until curl -f http://localhost:3000 2>/dev/null; do echo "Esperando aplicación..."; sleep 5; done' || echo "⚠️ Aplicación no responde"
+                            // 🧹 Limpieza de imágenes previas
+                            echo '1.1️⃣ Limpiando imágenes previas...'
+                            try {
+                                sh """
+                                    docker image rm \$(docker images -q ${DOCKER_PROJECT_NAME}_app) 2>/dev/null || echo "⚠️ No hay imágenes previas de la app"
+                                    docker image prune -f || echo "⚠️ No se pudieron limpiar imágenes"
+                                """
+                            } catch (Exception e) {
+                                echo "⚠️ Advertencia al limpiar imágenes: ${e.getMessage()}"
+                            }
                             
-                            echo "Verificando que el puerto 3000 está abierto:"
-                            netstat -tlnp | grep :3000 || echo "⚠️ Puerto 3000 no está abierto"
-                        """
-                        
-                        echo "✅ Deploy completado exitosamente"
-                        echo "🚀 Aplicación corriendo en: http://localhost:3000"
-                        echo "📦 Contenedor: modas-nansi-app"
-                        echo "🗄️ Base de datos MySQL corriendo en: localhost:3307"
-                        echo "📦 Contenedor DB: modas-nansi-db"
-                        
-                    } catch (Exception e) {
-                        echo "❌ Error durante el deploy: ${e.getMessage()}"
-                        echo "Logs de contenedores para debugging:"
-                        sh """
-                            cd docker
-                            docker-compose logs || echo "No se pueden obtener logs"
-                            echo "Estado de contenedores:"
-                            docker ps -a || echo "No se puede obtener estado de contenedores"
-                        """
-                        throw e
+                            // 🏗️ Construcción y levantamiento de servicios
+                            echo '2️⃣ Construyendo y levantando servicios...'
+                            sh "docker-compose -p ${DOCKER_PROJECT_NAME} up -d --build"
+                            
+                            // ⏳ Espera para que los servicios inicien
+                            echo '3️⃣ Esperando inicialización de servicios...'
+                            echo 'Esperando que MySQL esté listo...'
+                            sleep(20)
+                            
+                            // 🔍 Verificación de la base de datos
+                            echo '4️⃣ Verificando conexión a la base de datos...'
+                            timeout(time: 2, unit: 'MINUTES') {
+                                waitUntil {
+                                    script {
+                                        try {
+                                            sh "docker exec ${DB_CONTAINER_NAME} mysqladmin ping -h localhost -u ${DB_USER} -p${DB_PASSWORD} --silent"
+                                            return true
+                                        } catch (Exception e) {
+                                            echo "⏳ Esperando que MySQL esté listo..."
+                                            sleep(5)
+                                            return false
+                                        }
+                                    }
+                                }
+                            }
+                            echo "✅ MySQL está listo"
+                            
+                            // 🔍 Verificación de la estructura de base de datos
+                            echo '5️⃣ Verificando estructura de la base de datos...'
+                            sh """
+                                docker exec ${DB_CONTAINER_NAME} mysql -u${DB_USER} -p${DB_PASSWORD} -e "
+                                    USE ${DB_NAME}; 
+                                    SHOW TABLES;
+                                    SELECT 'Database ${DB_NAME} is ready!' as status;
+                                "
+                            """
+                            
+                            // ⏳ Espera adicional para la aplicación NestJS
+                            echo '6️⃣ Esperando inicio de la aplicación NestJS...'
+                            sleep(30)
+                            
+                            // 🔍 Verificación de logs de la aplicación
+                            echo '7️⃣ Mostrando logs de la aplicación:'
+                            sh "docker logs --tail 50 ${APP_CONTAINER_NAME}"
+                            
+                            // 🔍 Verificación de que la aplicación responde
+                            echo '8️⃣ Verificando que la aplicación responde...'
+                            timeout(time: 2, unit: 'MINUTES') {
+                                waitUntil {
+                                    script {
+                                        try {
+                                            sh "curl -f http://localhost:3000 >/dev/null 2>&1"
+                                            return true
+                                        } catch (Exception e) {
+                                            echo "⏳ Esperando que la aplicación responda..."
+                                            sleep(5)
+                                            return false
+                                        }
+                                    }
+                                }
+                            }
+                            echo "✅ Aplicación está respondiendo"
+                            
+                            // 📊 Estado final de los servicios
+                            echo '9️⃣ Estado final de los servicios:'
+                            sh "docker-compose -p ${DOCKER_PROJECT_NAME} ps"
+                            
+                            // 🌐 URLs de acceso
+                            echo '🌐 === INFORMACIÓN DE ACCESO ==='
+                            echo "🚀 Aplicación NestJS: http://localhost:3000"
+                            echo "🗄️ Base de datos MySQL: localhost:3307"
+                            echo "📦 Contenedor App: ${APP_CONTAINER_NAME}"
+                            echo "📦 Contenedor DB: ${DB_CONTAINER_NAME}"
+                            echo '================================'
+                            
+                        } catch (Exception e) {
+                            echo "❌ Error durante el despliegue: ${e.getMessage()}"
+                            
+                            // 🔍 Información de debugging
+                            echo '🔍 === INFORMACIÓN DE DEBUGGING ==='
+                            try {
+                                echo 'Estado de contenedores:'
+                                sh "docker-compose -p ${DOCKER_PROJECT_NAME} ps"
+                                
+                                echo 'Logs de la aplicación:'
+                                sh "docker logs ${APP_CONTAINER_NAME} --tail 30 || echo 'No se pueden obtener logs de la app'"
+                                
+                                echo 'Logs de la base de datos:'
+                                sh "docker logs ${DB_CONTAINER_NAME} --tail 20 || echo 'No se pueden obtener logs de la DB'"
+                                
+                                echo 'Contenedores en ejecución:'
+                                sh "docker ps -a"
+                                
+                            } catch (Exception debugE) {
+                                echo "No se pudo obtener información de debugging: ${debugE.getMessage()}"
+                            }
+                            
+                            throw e
+                        }
                     }
                 }
-                echo "=== FIN DOCKER BUILD & DEPLOY ==="
-            }
-        }
-        
-        stage('🔍 Post-Deploy Verification') {
-            steps {
-                echo "=== VERIFICACION POST-DEPLOY ==="
-                script {
-                    echo "Realizando verificaciones finales..."
-                    
-                    echo "1. Verificando estado de contenedores:"
-                    sh """
-                        cd docker
-                        docker-compose ps
-                        echo "Contenedores específicos:"
-                        docker ps | grep modas-nansi || echo "⚠️ No se encontraron contenedores modas-nansi"
-                    """
-                    
-                    echo "2. Verificando logs de la aplicación:"
-                    sh """
-                        cd docker
-                        docker-compose logs app --tail=20
-                        echo "Logs directos del contenedor modas-nansi-app:"
-                        docker logs modas-nansi-app --tail=10 || echo "⚠️ No se pueden obtener logs del contenedor"
-                    """
-                    
-                    echo "3. Verificando logs de la base de datos:"
-                    sh """
-                        cd docker
-                        docker-compose logs db --tail=10
-                        echo "Estado de MySQL:"
-                        docker exec modas-nansi-db mysqladmin -u root -ppassword123 status || echo "⚠️ MySQL no responde"
-                    """
-                    
-                    echo "4. Test de conectividad HTTP:"
-                    sh """
-                        echo "Test básico de conectividad:"
-                        curl -f http://localhost:3000 || echo "⚠️ Aplicación no responde"
-                        curl -I http://localhost:3000 || echo "⚠️ No se puede hacer HEAD request"
-                        
-                        echo "Test de endpoint health (si existe):"
-                        curl -f http://localhost:3000/health || echo "⚠️ Endpoint /health no responde"
-                    """
-                    
-                    echo "5. Verificando conectividad de base de datos:"
-                    sh """
-                        cd docker
-                        docker-compose exec -T db mysql -u root -ppassword123 -e "SHOW DATABASES;" || echo "⚠️ No se puede conectar a MySQL"
-                        docker exec modas-nansi-db mysql -u root -ppassword123 -e "SELECT 1;" || echo "⚠️ MySQL no acepta conexiones"
-                    """
-                    
-                    echo "6. Verificando recursos del sistema:"
-                    sh """
-                        echo "Uso de memoria de contenedores:"
-                        docker stats --no-stream --format "table {{.Container}}\\t{{.CPUPerc}}\\t{{.MemUsage}}" modas-nansi-app modas-nansi-db || echo "⚠️ No se pueden obtener estadísticas"
-                        
-                        echo "Puertos expuestos:"
-                        docker port modas-nansi-app || echo "⚠️ No se pueden obtener puertos de la app"
-                        docker port modas-nansi-db || echo "⚠️ No se pueden obtener puertos de la DB"
-                    """
-                    
-                    echo "✅ Verificaciones post-deploy completadas"
-                }
-                echo "=== FIN VERIFICACION POST-DEPLOY ==="
+                echo '✅ === FIN: DESPLIEGUE COMPLETADO ==='
             }
         }
     }
