@@ -11,10 +11,18 @@ pipeline {
         SONAR_TOKEN = credentials('sonarqube')
         // VERIFICACION: Verifica que SonarQube esté corriendo en esta URL
         SONAR_HOST_URL = 'http://54.165.164.194/:9000'
-            // Variables para Docker
+        // Variables para Docker
+        DOCKER_PROJECT_NAME = 'modas-nansi'
         DOCKER_IMAGE_NAME = 'modasnansi-backend'
         DOCKER_IMAGE_TAG = "${BUILD_NUMBER}"
         DOCKER_COMPOSE_FILE = 'docker/docker-compose.yml'
+        // Variables para contenedores
+        APP_CONTAINER_NAME = "${DOCKER_PROJECT_NAME}_app_1"
+        DB_CONTAINER_NAME = "${DOCKER_PROJECT_NAME}_db_1"       
+        // Variables para base de datos
+        DB_USER = 'root'
+        DB_PASSWORD = 'password123'
+        DB_NAME = 'modas-nansi'
     }
     
     stages {
