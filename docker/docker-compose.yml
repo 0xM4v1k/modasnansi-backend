@@ -10,14 +10,12 @@ services:
     environment:
       - NODE_ENV=production
       - PORT=3000
-      - HOST=0.0.0.0
       - LOCAL_DB_HOST=db
       - LOCAL_DB_PORT=3306
       - LOCAL_DB_USERNAME=root
       - LOCAL_DB_PASSWORD=password123
       - LOCAL_DB_DATABASE=modas-nansi
-      - ENVIRONMENT=production
-      # JWT_SECRET - cambiar por uno seguro en producción
+      - ENVIRONMENT=development
       - JWT_SECRET=gT8+F6vs+hnEuCdvW2KkzxNmKy5YITc7evqhasTf8wfDAr2ji+EnU5ZnsAXlR2cMb0TO3Hjeccx33LYu8R7PNg==
     depends_on:
       db:
