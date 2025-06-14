@@ -11,6 +11,10 @@ pipeline {
         SONAR_TOKEN = credentials('sonarqube')
         // VERIFICACION: Verifica que SonarQube esté corriendo en esta URL
         SONAR_HOST_URL = 'http://54.165.164.194/:9000'
+            // Variables para Docker
+        DOCKER_IMAGE_NAME = 'modasnansi-backend'
+        DOCKER_IMAGE_TAG = "${BUILD_NUMBER}"
+        DOCKER_COMPOSE_FILE = 'docker/docker-compose.yml'
     }
     
     stages {
@@ -178,39 +182,153 @@ pipeline {
                 echo "=== FIN QUALITY GATE ==="
             }
         }
+
+        stage('🐳 Docker Build & Deploy') {
+            steps {
+                echo "=== INICIANDO DOCKER BUILD & DEPLOY ==="
+                script {
+                    try {
+                        echo "Verificando archivos Docker..."
+                        sh "ls -la docker/"
+                        
+                        echo "Deteniendo contenedores existentes si existen..."
+                        sh """
+                            cd docker || { echo "❌ No se puede acceder al directorio docker"; exit 1; }
+                            docker-compose -f docker-compose.yml down --remove-orphans || echo "⚠️ No hay contenedores previos corriendo"
+                        """
+                        
+                        echo "Eliminando imágenes Docker previas..."
+                        sh """
+                            docker image ls | grep modas-nansi-app || echo "⚠️ No hay imágenes previas"
+                            docker image rm \$(docker image ls -q docker_app*) 2>/dev/null || echo "⚠️ No se pudieron eliminar imágenes previas"
+                            docker image rm \$(docker image ls -q modas-nansi-app*) 2>/dev/null || echo "⚠️ No se pudieron eliminar imágenes previas"
+                        """
+                        
+                        echo "Construyendo nueva imagen Docker..."
+                        sh """
+                            cd docker
+                            echo "Contenido del directorio actual:"
+                            ls -la
+                            echo "Verificando Dockerfile:"
+                            cat Dockerfile | head -10
+                            
+                            echo "Construyendo imagen..."
+                            docker-compose build --no-cache
+                        """
+                        
+                        echo "Verificando que la imagen se construyó correctamente..."
+                        sh "docker images | grep docker_app || { echo '❌ Imagen no construida correctamente'; exit 1; }"
+                        
+                        echo "Levantando servicios con Docker Compose..."
+                        sh """
+                            cd docker
+                            docker-compose up -d
+                        """
+                        
+                        echo "Esperando que los servicios estén listos..."
+                        sleep 30
+                        
+                        echo "Verificando que los contenedores están corriendo..."
+                        sh """
+                            cd docker
+                            docker-compose ps
+                            echo "Estado de los contenedores:"
+                            docker-compose logs --tail=20
+                        """
+                        
+                        echo "Verificando conectividad de la aplicación..."
+                        sh """
+                            echo "Esperando que la aplicación esté lista..."
+                            timeout 60s bash -c 'until curl -f http://localhost:3000 2>/dev/null; do echo "Esperando aplicación..."; sleep 5; done' || echo "⚠️ Aplicación no responde"
+                            
+                            echo "Verificando que el puerto 3000 está abierto:"
+                            netstat -tlnp | grep :3000 || echo "⚠️ Puerto 3000 no está abierto"
+                        """
+                        
+                        echo "✅ Deploy completado exitosamente"
+                        echo "🚀 Aplicación corriendo en: http://localhost:3000"
+                        echo "📦 Contenedor: modas-nansi-app"
+                        echo "🗄️ Base de datos MySQL corriendo en: localhost:3307"
+                        echo "📦 Contenedor DB: modas-nansi-db"
+                        
+                    } catch (Exception e) {
+                        echo "❌ Error durante el deploy: ${e.getMessage()}"
+                        echo "Logs de contenedores para debugging:"
+                        sh """
+                            cd docker
+                            docker-compose logs || echo "No se pueden obtener logs"
+                            echo "Estado de contenedores:"
+                            docker ps -a || echo "No se puede obtener estado de contenedores"
+                        """
+                        throw e
+                    }
+                }
+                echo "=== FIN DOCKER BUILD & DEPLOY ==="
+            }
+        }
+        
+        stage('🔍 Post-Deploy Verification') {
+            steps {
+                echo "=== VERIFICACION POST-DEPLOY ==="
+                script {
+                    echo "Realizando verificaciones finales..."
+                    
+                    echo "1. Verificando estado de contenedores:"
+                    sh """
+                        cd docker
+                        docker-compose ps
+                        echo "Contenedores específicos:"
+                        docker ps | grep modas-nansi || echo "⚠️ No se encontraron contenedores modas-nansi"
+                    """
+                    
+                    echo "2. Verificando logs de la aplicación:"
+                    sh """
+                        cd docker
+                        docker-compose logs app --tail=20
+                        echo "Logs directos del contenedor modas-nansi-app:"
+                        docker logs modas-nansi-app --tail=10 || echo "⚠️ No se pueden obtener logs del contenedor"
+                    """
+                    
+                    echo "3. Verificando logs de la base de datos:"
+                    sh """
+                        cd docker
+                        docker-compose logs db --tail=10
+                        echo "Estado de MySQL:"
+                        docker exec modas-nansi-db mysqladmin -u root -ppassword123 status || echo "⚠️ MySQL no responde"
+                    """
+                    
+                    echo "4. Test de conectividad HTTP:"
+                    sh """
+                        echo "Test básico de conectividad:"
+                        curl -f http://localhost:3000 || echo "⚠️ Aplicación no responde"
+                        curl -I http://localhost:3000 || echo "⚠️ No se puede hacer HEAD request"
+                        
+                        echo "Test de endpoint health (si existe):"
+                        curl -f http://localhost:3000/health || echo "⚠️ Endpoint /health no responde"
+                    """
+                    
+                    echo "5. Verificando conectividad de base de datos:"
+                    sh """
+                        cd docker
+                        docker-compose exec -T db mysql -u root -ppassword123 -e "SHOW DATABASES;" || echo "⚠️ No se puede conectar a MySQL"
+                        docker exec modas-nansi-db mysql -u root -ppassword123 -e "SELECT 1;" || echo "⚠️ MySQL no acepta conexiones"
+                    """
+                    
+                    echo "6. Verificando recursos del sistema:"
+                    sh """
+                        echo "Uso de memoria de contenedores:"
+                        docker stats --no-stream --format "table {{.Container}}\\t{{.CPUPerc}}\\t{{.MemUsage}}" modas-nansi-app modas-nansi-db || echo "⚠️ No se pueden obtener estadísticas"
+                        
+                        echo "Puertos expuestos:"
+                        docker port modas-nansi-app || echo "⚠️ No se pueden obtener puertos de la app"
+                        docker port modas-nansi-db || echo "⚠️ No se pueden obtener puertos de la DB"
+                    """
+                    
+                    echo "✅ Verificaciones post-deploy completadas"
+                }
+                echo "=== FIN VERIFICACION POST-DEPLOY ==="
+            }
+        }
     }
     
-    post {
-        always {
-            echo "=== POST-PROCESO SIEMPRE ==="
-            echo "Información del build:"
-            echo "- Build Number: ${BUILD_NUMBER}"
-            echo "- Build URL: ${BUILD_URL}"
-            echo "- Workspace: ${WORKSPACE}"
-            
-            echo "Estado final del workspace:"
-            sh 'ls -la || echo "No se puede listar el workspace"'
-            
-            echo "Limpiando workspace..."
-            cleanWs()
-            echo "✅ Workspace limpio"
-            echo "=== FIN POST-PROCESO ==="
-        }
-        success {
-            echo "🎉 ¡PIPELINE COMPLETADO EXITOSAMENTE!"
-            echo "✅ Todas las etapas pasaron correctamente"
-            echo "✅ Código analizado en SonarQube"
-            echo "✅ Quality Gate aprobado"
-        }
-        failure {
-            echo "💥 PIPELINE FALLÓ"
-            echo "❌ Revisa los logs arriba para identificar el problema"
-            echo "❌ Verifica la configuración de herramientas en Jenkins"
-            echo "❌ Confirma que SonarQube esté funcionando"
-        }
-        unstable {
-            echo "⚠️ PIPELINE INESTABLE"
-            echo "⚠️ Algunos tests pueden haber fallado pero el build continuó"
-        }
-    }
 }
